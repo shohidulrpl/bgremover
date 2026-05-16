@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BG.Eraser AI Ultra - Cutout.pro Edition</title>
+    <!-- React & ReactDOM CDNs -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    <!-- Babel Compiler for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Tailwind CSS Script Engine -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <style>
+        /* Transparent alpha pattern grid styling */
+        .checkerboard {
+            background-image: 
+                linear-gradient(45deg, #1f212a 25%, transparent 25%), 
+                linear-gradient(-45deg, #1f212a 25%, transparent 25%), 
+                linear-gradient(45deg, transparent 75%, #1f212a 75%), 
+                linear-gradient(-45deg, transparent 75%, #1f212a 75%);
+            background-size: 24px 24px;
+            background-position: 0 0, 0 12px, 12px -12px, -12px 0;
+            opacity: 0.4;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: scale(0.99); }
+            to { opacity: 1; transform: scale(1); }
+        }
+        .animate-fade-in {
+            animation: fadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+    </style>
+</head>
+<body class="min-h-screen bg-[#090a0f] text-slate-100 antialiased selection:bg-indigo-500/30 selection:text-indigo-200">
+
+    <!-- Application Injection Container Mount Point -->
+    <div id="root"></div>
+
+    <!-- UI Implementation Scripts -->
+    <script type="text/babel">
+        const { useState, useRef, useEffect } = React;
+
+        function App() {
+            const [originalFile, setOriginalFile] = useState(null);
+            const [originalUrl, setOriginalUrl] = useState('');
+            const [resultUrl, setResultUrl] = useState('');
+            const [isLoading, setIsLoading] = useState(false);
+            const [error, setError] = useState('');
+            const [isDragging, setIsDragging] = useState(false);
+            const [sliderPosition, setSliderPosition] = useState(50);
+            
+            const isResizing = useRef(false);
+            const containerRef = useRef(null);
+            const fileInputRef = useRef(null);
+
+            // Clean up temporary object URLs from memory when images change
+            useEffect(() => {
+                return () => {
+                    if (originalUrl) URL.revokeObjectURL(originalUrl);
+                    if (resultUrl) URL.revokeObjectURL(resultUrl);
+                };
+            }, [originalUrl, resultUrl]);
+
+            // Drag and drop mechanics
+            const handleDragOver = (e) => {
+                e.preventDefault();
+                setIsDragging(true);
+            };
+
+            const handleDragLeave = () => {
+                setIsDragging(false);
+            };
+
+            const handleDrop = (e) => {
+                e.preventDefault();
+                setIsDragging(false);
+                const files = e.dataTransfer.files;
+                if (files && files.length > 0) {
+                    validateAndProcessFile(files[0]);
+                }
+            };
+
+            const handleFileChange = (e) => {
+                const files = e.target.files;
+                if (files && files.length > 0) {
+                    validateAndProcessFile(files[0]);
+                }
+            };
+
+            const validateAndProcessFile = (file) => {
+                setError('');
+                if (!file.type.startsWith('image/')) {
+                    setError('Please upload a valid image file format (PNG or JPEG).');
+                    return;
+                }
+                if (file.size > 15 * 1024 * 1024) {
+                    setError('The file is too large. Please use an image file under 15MB.');
+                    return;
+                }
+
+                setOriginalFile(file);
+                if (originalUrl) URL.revokeObjectURL(originalUrl);
+                setOriginalUrl(URL.createObjectURL(file));
+                setResultUrl('');
+            };
+
+            // High Resolution Engine - Cutout.pro Integration
+            const handleRemoveBackground = async () => {
+                if (!originalFile) return;
+
+                setIsLoading(true);
+                setError('');
+
+                const formData = new FormData();
+                formData.append('file', originalFile);
+
+                try {
+                    // Cutout.pro General Matting Endpoint (mattingType 6 handles generic backgrounds cleanly)
+                    const response = await fetch('https://www.cutout.pro/api/v1/matting?mattingType=6', {
+                        method: 'POST',
+                        headers: {
+                            'APIKEY': '05e4923f59ac4b5a9336cca9440d492b'
+                        },
+                        body: formData
+                    });
+
+                    // Cutout.pro returns JSON with errors or raw image bytes based on output success
+                    const contentType = response.headers.get("content-type");
+                    
+                    if (!response.ok || (contentType && contentType.includes("application/json"))) {
+                        const jsonResponse = await response.json().catch(() => ({}));
+                        throw new Error(jsonResponse.msg || jsonResponse.message || `API server returned an error error (${response.status})`);
+                    }
+
+                    const blob = await response.blob();
+                    if (resultUrl) URL.revokeObjectURL(resultUrl);
+                    setResultUrl(URL.createObjectURL(blob));
+                } catch (err) {
+                    setError(err.message || 'An unexpected error occurred during background removal processing.');
+                } finally {
+                    setIsLoading(false);
+                }
+            };
+
+            const resetTool = () => {
+                setOriginalFile(null);
+                setOriginalUrl('');
+                setResultUrl('');
+                setError('');
+                setSliderPosition(50);
+            };
+
+            // Before/After Slider Handling
+            const handleSliderMove = (clientX) => {
+                if (!containerRef.current) return;
+                const rect = containerRef.current.getBoundingClientRect();
+                const x = clientX - rect.left;
+                const percentage = Math.max(0, Math.min(100, (x / rect.width) * 100));
+                setSliderPosition(percentage);
+            };
+
+            useEffect(() => {
+                const handleMouseMove = (e) => {
+                    if (!isResizing.current) return;
+                    handleSliderMove(e.clientX);
+                };
+                const handleTouchMove = (e) => {
+                    if (!isResizing.current && e.touches.length > 0) return;
+                    handleSliderMove(e.touches[0].clientX);
+                };
+                const handleMouseUp = () => { isResizing.current = false; };
+
+                window.addEventListener('mousemove', handleMouseMove);
+                window.addEventListener('touchmove', handleTouchMove);
+                window.addEventListener('mouseup', handleMouseUp);
+                window.addEventListener('touchend', handleMouseUp);
+                
+                return () => {
+                    window.removeEventListener('mousemove', handleMouseMove);
+                    window.removeEventListener('touchmove', handleTouchMove);
+                    window.removeEventListener('mouseup', handleMouseUp);
+                    window.removeEventListener('touchend', handleMouseUp);
+                };
+            }, []);
+
+            return (
+                <div className="relative min-h-screen flex flex-col justify-between">
+                    {/* Glowing Decorative Radial Ambient Background */}
+                    <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-7xl h-[600px] pointer-events-none opacity-[0.15] filter blur-[140px] bg-gradient-to-r from-teal-500 via-indigo-600 to-purple-400 -z-10 rounded-full"></div>
+
+                    {/* Navbar */}
+                    <header className="border-b border-slate-800/60 bg-[#090a0f]/80 backdrop-blur-md sticky top-0 z-50">
+                        <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
+                            <div className="flex items-center gap-2.5 cursor-pointer" onClick={resetTool}>
+                                <div className="p-2 bg-gradient-to-br from-indigo-500 to-teal-600 rounded-xl shadow-lg shadow-indigo-500/10">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" className="text-white"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>
+                                </div>
+                                <span className="font-extrabold text-xl tracking-tight bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent">
+                                    BG.Eraser <span className="text-teal-400 font-bold text-xs px-1.5 py-0.5 rounded-md bg-teal-500/10 border border-teal-500/20 ml-1">HD ULTRA</span>
+                                </span>
+                            </div>
+                            <div className="flex items-center gap-2 text-xs text-slate-400 border border-slate-800 rounded-full px-3 py-1 bg-slate-900/40">
+                                <span className="inline-block w-1.5 h-1.5 rounded-full bg-teal-400 animate-pulse"></span>
+                                <span>Quick Background Change by AI</span>
+                            </div>
+                        </div>
+                    </header>
+
+                    {/* Main Workspace Frame */}
+                    <main className="max-w-6xl mx-auto w-full px-4 py-12 flex-grow flex flex-col items-center justify-center">
+                        <div className="text-center max-w-2xl mx-auto mb-10 space-y-3">
+                            <h1 className="text-4xl md:text-5xl font-black tracking-tight bg-gradient-to-b from-white to-slate-400 bg-clip-text text-transparent">
+                                Studio-Quality Background Eraser
+                            </h1>
+                            <p className="text-sm md:text-base text-slate-400 font-normal leading-relaxed">
+                                Powered by Md. Shohidul Islam
+                            </p>
+                        </div>
+
+                        {error && (
+                            <div className="w-full max-w-3xl mb-6 p-4 bg-rose-500/10 border border-rose-500/20 rounded-2xl flex items-start gap-3 text-rose-300 animate-fade-in shadow-xl backdrop-blur-sm">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" className="text-rose-400 flex-shrink-0 mt-0.5"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>
+                                <div className="text-sm font-medium">{error}</div>
+                            </div>
+                        )}
+
+                        <div className="w-full max-w-3xl">
+                            {/* Upload Active Area Dropzone State */}
+                            {!originalUrl && (
+                                <div
+                                    onDragOver={handleDragOver}
+                                    onDragLeave={handleDragLeave}
+                                    onDrop={handleDrop}
+                                    onClick={() => fileInputRef.current?.click()}
+                                    className={`group border-2 border-dashed rounded-3xl p-12 text-center cursor-pointer transition-all duration-300 bg-slate-900/10 backdrop-blur-sm flex flex-col items-center justify-center min-h-[350px] ${
+                                        isDragging ? 'border-indigo-500 bg-indigo-500/5 scale-[0.99]' : 'border-slate-800 hover:border-slate-600 hover:bg-slate-900/30'
+                                    }`}
+                                >
+                                    <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/png, image/jpeg" className="hidden" />
+                                    <div className="p-5 bg-slate-900/80 border border-slate-800 rounded-2xl mb-5 text-indigo-400 group-hover:scale-105 transition-all shadow-inner">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
+                                    </div>
+                                    <h3 className="text-lg font-bold text-slate-200 mb-1">Select or drop high-definition image</h3>
+                                    <p className="text-xs text-slate-500 mb-6">Supports photo source images up to 15MB (JPEG / PNG)</p>
+                                    <button type="button" className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm rounded-xl shadow-lg shadow-indigo-600/10 hover:shadow-indigo-500/20 transition-all">Browse Local Drive</button>
+                                </div>
+                            )}
+
+                            {/* Canvas Visual Component Area State */}
+                            {originalUrl && (
+                                <div className="bg-slate-900/20 backdrop-blur-md border border-slate-800/80 rounded-3xl p-6 shadow-2xl space-y-6 animate-fade-in">
+                                    <div className="relative rounded-2xl overflow-hidden bg-[#101117] border border-slate-800 aspect-[4/3] md:aspect-[16/10] flex items-center justify-center">
+                                        <div className="absolute inset-0 checkerboard"></div>
+
+                                        {!resultUrl ? (
+                                            <div className="relative w-full h-full p-4 flex items-center justify-center">
+                                                <img src={originalUrl} alt="Preview Source File" className={`max-w-full max-h-full object-contain rounded-xl shadow-2xl select-none ${isLoading ? 'opacity-35 grayscale-[30%]' : ''}`} />
+                                                {isLoading && (
+                                                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/40 backdrop-blur-sm">
+                                                        <div className="p-4 bg-slate-950 border border-slate-800 rounded-2xl text-teal-400 animate-spin shadow-2xl">
+                                                            <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                                                        </div>
+                                                        <div className="text-center space-y-0.5">
+                                                            <span className="text-sm font-bold tracking-wide text-white block">AI HD Matting Isolation Engine...</span>
+                                                            <span className="text-xs text-slate-400 block">Extracting original resolution alpha mask pixels</span>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ) : (
+                                            <div ref={containerRef} className="relative w-full h-full select-none overflow-hidden flex items-center justify-center">
+                                                {/* Matte Cutout Transparency Layer */}
+                                                <div className="absolute inset-0 p-4 flex items-center justify-center">
+                                                    <img src={resultUrl} alt="High Def Output Layer" className="max-w-full max-h-full object-contain pointer-events-none" />
+                                                </div>
+                                                {/* Sliding Mask Element Wrapper */}
+                                                <div className="absolute inset-0 p-4 flex items-center justify-center overflow-hidden border-r border-indigo-500/40" style={{ clipPath: `polygon(0 0, ${sliderPosition}% 0, ${sliderPosition}% 100%, 0 100%)` }}>
+                                                    <img src={originalUrl} alt="Source Layer Image Reference" className="max-w-full max-h-full object-contain pointer-events-none" />
+                                                </div>
+                                                {/* Slider Track Adjustment Tab Node */}
+                                                <div className="absolute top-0 bottom-0 w-1 bg-indigo-500 cursor-ew-resize z-20 flex items-center justify-center" style={{ left: `${sliderPosition}%` }} onMouseDown={(e) => { e.preventDefault(); isResizing.current = true; }} onTouchStart={() => { isResizing.current = true; }}>
+                                                    <div className="w-8 h-8 rounded-full bg-indigo-500 text-white flex items-center justify-center shadow-xl border border-indigo-400/50 cursor-ew-resize active:scale-110 transition-transform">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+                                                    </div>
+                                                </div>
+                                                <span className="absolute bottom-4 left-4 z-30 bg-slate-950/90 border border-slate-800 text-xs font-semibold text-slate-400 px-2.5 py-1 rounded-md shadow-md">Original HD</span>
+                                                <span className="absolute bottom-4 right-4 z-30 bg-teal-600 text-xs font-semibold text-white px-2.5 py-1 rounded-md shadow-md">Isolated Cutout</span>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Action Command Bar Panel */}
+                                    <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-2 border-t border-slate-800/50">
+                                        <button type="button" onClick={resetTool} disabled={isLoading} className="w-full sm:w-auto px-5 py-2.5 bg-slate-800/60 hover:bg-slate-800 text-slate-300 font-bold text-sm rounded-xl border border-slate-700/30 flex items-center justify-center gap-2 transition-all disabled:opacity-40">
+                                            Clear File
+                                        </button>
+                                        {!resultUrl ? (
+                                            <button type="button" onClick={handleRemoveBackground} disabled={isLoading} className="w-full sm:w-auto px-6 py-2.5 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 text-white font-bold text-sm rounded-xl shadow-lg shadow-indigo-600/10 flex items-center justify-center gap-2 transition-all disabled:opacity-40">
+                                                <span>Process Cutout Background</span>
+                                            </button>
+                                        ) : (
+                                            <a href={resultUrl} download="cutout-hd-transparent.png" className="w-full sm:w-auto px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm rounded-xl shadow-lg shadow-emerald-600/10 flex items-center justify-center gap-2 transition-all">
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
+                                                <span>Download High-Res PNG</span>
+                                            </a>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </main>
+
+                    {/* Dashboard Signature Footer */}
+                    <footer className="w-full border-t border-slate-900/60 py-4 text-center text-xs text-slate-600 font-medium">
+                        Engineered with High-Fidelity Composers by Md. Shohidul Islam.
+                    </footer>
+                </div>
+            );
+        }
+
+        // Deploy and Mount Application Node Components
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
